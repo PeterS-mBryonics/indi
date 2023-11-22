@@ -35,8 +35,30 @@
 #include <unistd.h>
 #include <regex>
 
+#include <iostream>
+using namespace std;
+#include <algorithm>
+#include <string>
+#include <vector>
+#include <sstream>
+
 const char *SETTINGS_TAB  = "Settings";
 const char *STATUS_TAB = "Status";
+
+// Different error codes
+const char  *stationary = u8"Stationary";
+const char  *moving = u8"Moving";
+const char  *ok = u8"OK";
+const char  *fault = u8"FAULT";
+
+const char *LX200NYX101::getDefaultName()
+{
+    return "Pegasus NYX-101";
+}
+
+const char *ON = u8"ON";
+const char *OFF = u8"OFF";
+
 
 LX200NYX101::LX200NYX101()
 {
@@ -75,16 +97,22 @@ bool LX200NYX101::initProperties()
 
     // Overwrite TRACK_CUSTOM, with TRACK_KING
     IUFillSwitch(&TrackModeS[TRACK_KING], "TRACK_KING", "King", ISS_OFF);
+	
+	// Horizontal Coordinates
+	AltAzNP[AZ].fill("AZ", "AZ (dd:mm:ss)", "%010.6m", 0, 360, 0, 0);
+	AltAzNP[ALT].fill("ALT", "ALT (dd:mm:ss)", "%010.6m", -90, 90, 0, 0);
+	AltAzNP.fill(getDeviceName(), "HORIZONTAL_COORD", "ALT/AZ", MAIN_CONTROL_TAB, IP_RO, 60, IPS_IDLE);
    
     // Elevation Limits
     ElevationLimitNP[OVERHEAD].fill("ELEVATION_OVERHEAD", "Overhead", "%g", 60, 90,   1, 90);
     ElevationLimitNP[HORIZON].fill("ELEVATION_HORIZON", "Horizon", "%g", -30, 0,   1, 0);
-    ElevationLimitNP.fill(getDeviceName(), "ELEVATION_LIMIT", "Elevation Limit", MAIN_CONTROL_TAB, IP_RW, 0,
+    ElevationLimitNP.fill(getDeviceName(), "ELEVATION_LIMIT", "Elevation Limit", SITE_TAB, IP_RW, 0,
                           IPS_IDLE);
+	
 
     // Meridian
     MeridianLimitNP[0].fill("VALUE", "Degrees (+/- 120)", "%.f", -120, 120, 1, 0);
-    MeridianLimitNP.fill(getDeviceName(), "MERIDIAN_LIMIT", "Limit", MAIN_CONTROL_TAB, IP_RW, 60, IPS_IDLE);
+    MeridianLimitNP.fill(getDeviceName(), "MERIDIAN_LIMIT", "Limit", SITE_TAB, IP_RW, 60, IPS_IDLE);
 
     // Flip 
     FlipSP[0].fill("Flip", "Flip", ISS_OFF);
@@ -100,7 +128,8 @@ bool LX200NYX101::initProperties()
     SafetyLimitSP[SET_SAFETY_LIMIT].fill("SET_SAFETY_LIMIT", "Set", ISS_OFF);
     SafetyLimitSP[CLEAR_SAFETY_LIMIT].fill("CLEAR_SAFETY_LIMIT", "Clear", ISS_OFF);
     SafetyLimitSP.fill(getDeviceName(), "SAFETY_LIMIT",
-                       "Custom Limits", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+                       "Custom Limits", SITE_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+
     // Guide Rate
     int guideRate = 1;
     IUGetConfigOnSwitchIndex(getDeviceName(), "GUIDE_RATE", &guideRate);
@@ -116,13 +145,14 @@ bool LX200NYX101::initProperties()
     //Reset Home
     ResetHomeSP[0].fill("Home", "Reset", ISS_OFF);
     ResetHomeSP.fill(getDeviceName(), "HOME_RESET", "Home Reset", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+	
+	//Set Park Position
+    SetParkSP[0].fill("Park", "Set", ISS_OFF);
+    SetParkSP.fill(getDeviceName(), "PARK_SET", "Set Park Pos.", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
 
-    verboseReport = false;
-    VerboseReportSP[0].fill("On","On",  ISS_OFF);
-    VerboseReportSP[1].fill("Off","Off", ISS_ON);
-    VerboseReportSP.fill(getDeviceName(), "REPORT_VERBOSE", "Verbose", STATUS_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
 
-    Report[0].fill("Report","GU","-");
+    // Report and debug
+    Report[0].fill("Report","GU",OFF);
     Report.fill(getDeviceName(), "Report", "Report", STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
 #ifdef DEBUG_NYX    
@@ -130,56 +160,59 @@ bool LX200NYX101::initProperties()
     DebugCommandTP.fill(getDeviceName(), "DebugCommand", "", MAIN_CONTROL_TAB, IP_RW, 0,
                         IPS_IDLE);
 #endif
-    
-    IsTracking[0].fill("IsTracking","n","-");
+
+    IsTracking[0].fill("IsTracking","n",OFF);
     IsTracking.fill(getDeviceName(),"IsTracking","IsTracking",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    IsSlewCompleted[0].fill("IsSlewCompleted","N","-");
+    IsSlewCompleted[0].fill("IsSlewCompleted","N",OFF);
     IsSlewCompleted.fill(getDeviceName(),"IsSlewCompleted","IsSlewCompleted",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    IsParked[0].fill("IsParked","p/P","-");
+    IsParked[0].fill("IsParked","p/P",OFF);
     IsParked.fill(getDeviceName(),"IsParked","IsParked",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    IsParkginInProgress[0].fill("IsParkginInProgress","I","-");
+    IsParkginInProgress[0].fill("IsParkginInProgress","I",OFF);
     IsParkginInProgress.fill(getDeviceName(),"IsParkginInProgress","IsParkginInProgress",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    IsAtHomePosition[0].fill("IsAtHomePosition","H","-");
+    IsAtHomePosition[0].fill("IsAtHomePosition","H",OFF);
     IsAtHomePosition.fill(getDeviceName(),"IsAtHomePosition","IsAtHomePosition",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    MountAltAz[0].fill("MountAltAz","A","-");
+    MountAltAz[0].fill("MountAltAz","A",OFF);
     MountAltAz.fill(getDeviceName(),"MountAltAz","MountAltAz",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    MountEquatorial[0].fill("MountEquatorial","E","-");
+    MountEquatorial[0].fill("MountEquatorial","E",OFF);
     MountEquatorial.fill(getDeviceName(),"MountEquatorial","MountEquatorial",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    PierNone[0].fill("PierNone","","-");
+    PierNone[0].fill("PierNone","",OFF);
     PierNone.fill(getDeviceName(),"PierNone","PierNone",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    PierEast[0].fill("PierEast","T","-");
+    PierEast[0].fill("PierEast","T",OFF);
     PierEast.fill(getDeviceName(),"PierEast","PierEast",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    PierWest[0].fill("PierWest","W","-");
+    PierWest[0].fill("PierWest","W",OFF);
     PierWest.fill(getDeviceName(),"PierWest","PierWest",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    DoesRefractionComp[0].fill("DoesRefractionComp","r","-");
+    DoesRefractionComp[0].fill("DoesRefractionComp","r",OFF);
     DoesRefractionComp.fill(getDeviceName(),"DoesRefractionComp","DoesRefractionComp",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    WaitingAtHome[0].fill("WaitingAtHome","w","-");
+    WaitingAtHome[0].fill("WaitingAtHome","w",OFF);
     WaitingAtHome.fill(getDeviceName(),"WaitingAtHome","WaitingAtHome",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    IsHomePaused[0].fill("IsHomePaused","u","-");
+    IsHomePaused[0].fill("IsHomePaused","u",OFF);
     IsHomePaused.fill(getDeviceName(),"IsHomePaused","IsHomePaused",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    ParkFailed[0].fill("ParkFailed","F","-");
+    ParkFailed[0].fill("ParkFailed","F",OFF);
     ParkFailed.fill(getDeviceName(),"ParkFailed","ParkFailed",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
-    SlewingHome[0].fill("SlewingHome","h","-");
+    SlewingHome[0].fill("SlewingHome","h",OFF);
     SlewingHome.fill(getDeviceName(),"SlewingHome","SlewingHome",STATUS_TAB, IP_RO, 60, IPS_IDLE);
-
+	// End of report and debug
+	
+	
     // Reboot 
     RebootSP[0].fill("Reboot", "Reboot", ISS_OFF);
-    RebootSP.fill(getDeviceName(), "REBOOT", "Reboot", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
-  
+    RebootSP.fill(getDeviceName(), "REBOOT", "Reboot", SETTINGS_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+
+
     // Slew Rates
     strncpy(SlewRateS[0].label, "2x", MAXINDILABEL);
     strncpy(SlewRateS[1].label, "8x", MAXINDILABEL);
@@ -194,6 +227,42 @@ bool LX200NYX101::initProperties()
     IUResetSwitch(&SlewRateSP);
 
     SlewRateS[9].s = ISS_ON;
+    
+    // Slew rate controls per axis for satellite tracking
+    RateNP[RA].fill(
+        "RA_SLEW_RATE",
+        "RA Slew Rate",
+        "%g",
+        -5., 5., 0.1, 5.);
+    
+    RateNP[DEC].fill(
+        "DEC_SLEW_RATE",
+        "DEC Slew Rate",
+        "%g",
+        -5., 5., 0.1, 5.);
+    RateNP.fill(
+        getDeviceName(),
+        "SLEW_RATES",
+        "Slew Rates",
+        MOTION_TAB,
+        IP_RW,
+        60, IPS_IDLE);
+    
+	// Spiral search
+	SpiralSP[START].fill("SpiralSearchStart", "Start", ISS_OFF);
+	SpiralSP[STOP].fill("SpiralSearchStop", "Stop", ISS_OFF);
+	SpiralSP.fill(getDeviceName(), "SpiralSearch", "Spiral Search at current guide rate", MOTION_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
+    
+    // The hard limit switch
+    RAHardLimitTP[0].fill("RAHardLimit", "n", OFF);
+    RAHardLimitTP.fill(getDeviceName(), "RAHardLimit", "Hard limit state", STATUS_TAB, IP_RO, 60, IPS_IDLE);
+    // RA motor status
+    RAMotorStatusTP[0].fill("RAMotorStatus", "n", ok);
+    RAMotorStatusTP.fill(getDeviceName(), "RAMotorStatus", "RA Motor Status", STATUS_TAB, IP_RO, 60, IPS_IDLE);
+    // DEC motor status
+    DECMotorStatusTP[0].fill("DECMotorStatus", "n", ok);
+    DECMotorStatusTP.fill(getDeviceName(), "DECMotorStatus", "DEC Motor Status", STATUS_TAB, IP_RO, 60, IPS_IDLE);
+        
 
 
     return true;
@@ -231,7 +300,7 @@ bool LX200NYX101::updateProperties()
             GuideRateSP.setState((IPS_OK));
             GuideRateSP.apply();
         }
-
+        
         if(sendCommand(":Go#", status))
         {
             std::string c = status;
@@ -249,11 +318,13 @@ bool LX200NYX101::updateProperties()
             std::string c = status;
             MeridianLimitNP[0].setValue(std::stoi(c));
         }
-        
+
+		defineProperty(AltAzNP);
         defineProperty(MountTypeSP);
         defineProperty(GuideRateSP);
         defineProperty(HomeSP);
         defineProperty(ResetHomeSP);
+		defineProperty(SetParkSP);
         defineProperty(Report);
         defineProperty(FlipSP);
         defineProperty(MeridianLimitNP);
@@ -264,7 +335,6 @@ bool LX200NYX101::updateProperties()
         defineProperty(DebugCommandTP);
 #endif
         defineProperty(RebootSP);
-        defineProperty(VerboseReportSP);
         defineProperty(IsTracking);
         defineProperty(IsSlewCompleted);
         defineProperty(IsParked);
@@ -280,9 +350,16 @@ bool LX200NYX101::updateProperties()
         defineProperty(IsHomePaused);
         defineProperty(ParkFailed);
         defineProperty(SlewingHome);
+        defineProperty(RateNP);
+        defineProperty(RAHardLimitTP);
+        defineProperty(RAMotorStatusTP);
+        defineProperty(DECMotorStatusTP);
+		defineProperty(SpiralSP);
+		
     }
     else
     {
+		deleteProperty(AltAzNP);
         deleteProperty(MountTypeSP);
         deleteProperty(GuideRateSP);
         deleteProperty(HomeSP);
@@ -291,12 +368,12 @@ bool LX200NYX101::updateProperties()
         deleteProperty(ElevationLimitNP);
         deleteProperty(SafetyLimitSP);
         deleteProperty(ResetHomeSP);
+		deleteProperty(SetParkSP);
         deleteProperty(Report);
 #ifdef DEBUG_NYX
         deleteProperty(DebugCommandTP);
 #endif
         deleteProperty(RebootSP);
-        deleteProperty(VerboseReportSP);
         deleteProperty(RefractSP);
         deleteProperty(IsTracking);
         deleteProperty(IsSlewCompleted);
@@ -313,25 +390,19 @@ bool LX200NYX101::updateProperties()
         deleteProperty(IsHomePaused);
         deleteProperty(ParkFailed);
         deleteProperty(SlewingHome);
+        deleteProperty(RateNP);
+        deleteProperty(RAHardLimitTP);
+        deleteProperty(RAMotorStatusTP);
+        deleteProperty(DECMotorStatusTP);
+		deleteProperty(SpiralSP);
 
     }
 
     return true;
 }
 
-
-const char *LX200NYX101::getDefaultName()
-{
-    return "Pegasus NYX-101";
-}
-
-const char *ON = "ON";
-const char *OFF = "OFF";
-
 void LX200NYX101::SetPropertyText(INDI::PropertyText propertyTxt, IPState state)
 {
-    if(!verboseReport)
-        return;
 
     if(state == IPS_OK)
     {
@@ -389,11 +460,15 @@ bool LX200NYX101::ReadScopeStatus()
 
     //bool _SlewingHome = false;
     SetPropertyText(SlewingHome, IPS_BUSY);
-
-    char status[DRIVER_LEN] = {0};    
+	
+	// Getting the status message from the mount and interpreting it
+	char status[DRIVER_LEN] = {0};
+    
     if(sendCommand(":GU#", status))
     {
-        Report[0].text = status;
+        char s[DRIVER_LEN] = {0};
+		strcpy(s, ok);
+		Report[0].text = s;
         Report.apply();
         int index = 0;
         while(true)
@@ -477,6 +552,15 @@ bool LX200NYX101::ReadScopeStatus()
             break;
         }
     }
+	else
+	{
+        char s[DRIVER_LEN] = {0};
+		strcpy(s, fault);
+		Report[0].text = s;
+        Report.apply();
+	}
+	
+	
     if(_DoesRefractionComp ){
         RefractSP[REFRACT_ON].setState(ISS_ON);
         RefractSP[REFRACT_OFF].setState(ISS_OFF);
@@ -559,13 +643,222 @@ bool LX200NYX101::ReadScopeStatus()
 
     NewRaDec(currentRA, currentDEC);
 
+    
+	// RA Motor Status
+    char RaStatus[DRIVER_LEN] = {0};
+    if(sendCommand(":GXU1#", RaStatus))
+    {
+		char s[DRIVER_LEN] = {0};
+		GetMotorState(s, RaStatus);
+		RAMotorStatusTP[0].setText(s);
+    }
+    RAMotorStatusTP.apply();
+
+	// DEC Motor Status
+    char DecStatus[DRIVER_LEN] = {0};
+    if(sendCommand(":GXU2#", DecStatus))
+    {
+        char s[DRIVER_LEN] = {0};
+		GetMotorState(s, DecStatus);
+		DECMotorStatusTP[0].setText(s);
+    }
+    DECMotorStatusTP.apply();
+	
+	// RA limit switch status
+	
+    char RaLimitStatus[DRIVER_LEN] = {0};
+    sendCommand(":GX9L#", RaLimitStatus);
+    if(RaLimitStatus[0] == '1')
+    {
+		char s[DRIVER_LEN] = {0};
+		strcpy(s, fault);
+		RAHardLimitTP[0].text = s;
+		RAHardLimitTP.setState(IPS_ALERT);
+    }
+    else
+    {
+		char s[DRIVER_LEN] = {0};
+		strcpy(s, ok);
+		RAHardLimitTP[0].text = s;
+		RAHardLimitTP.setState(IPS_OK);
+    }
+    RAHardLimitTP.apply();
+    
+	// Alt/Az Position Read
+	if (getLX200Az(PortFD, &currentAz) < 0 || getLX200Alt(PortFD, &currentAlt) < 0)
+	{
+		AltAzNP.setState(IPS_ALERT);
+        // IDSetNumber(&AltAzNP, "Error reading Az - Alt");
+        return false;
+	}
+	else
+	{
+		AltAzNP[AZ].value = currentAz;
+		AltAzNP[ALT].value = currentAlt;
+	}
+	AltAzNP.apply();
+	
+	// Minutes past meridian read
+	if (getFloat(PortFD, &minPastEastMeridian, ":GXE9#") == 0 && getFloat(PortFD, &minPastWestMeridian, ":GXEA#") == 0)
+	{
+		
+		if (minPastEastMeridian != minPastWestMeridian)
+		{
+			// If the two values aren't equal, set them to the same number
+			std::string command = ":SXE9," + std::to_string(MeridianLimitNP[0].getValue()) + "#";;
+            sendCommand(command.c_str());
+            command = ":SXEA," + std::to_string(MeridianLimitNP[0].getValue()) + "#";;
+            sendCommand(command.c_str());
+		}
+		else
+		{
+			MeridianLimitNP[0].value = minPastEastMeridian;
+			MeridianLimitNP.setState(IPS_OK);
+		}
+	}
+	else
+	{
+		MeridianLimitNP.setState(IPS_ALERT);
+	}
+	MeridianLimitNP.apply();
+	
     return true;
 }
+
+bool LX200NYX101::GetMotorState(char * s, char * status)
+{
+	// Gets the motor state according to the table in the command set
+	// Comes out of the mount as a comma separated list
+	// TODO: add parsing of the motor load number at the end
+	// Currently if there's a fault condition it just says "FAULT"
+	// as I'm not sure if the extra information is that useful
+	string segment;
+	vector<string> seglist;
+	stringstream StatusString(status);
+	while(getline(StatusString, segment, ','))
+	{
+	   seglist.push_back(segment);
+	}
+	// Unknown state - probably a fault if none of these trigger
+	strcpy(s, fault);
+	if (seglist[0] == "ST")
+		{
+		// Motor stationary
+		strcpy(s, stationary);
+		}
+	else if (seglist[0] != "ST")
+		{
+		// Motor slewing normally
+		strcpy(s, moving);
+		}
+	// We want to override the stationary/moving in the case of any fault
+	if (seglist[1] == "OA")
+		{
+		// Output A open load
+		strcpy(s, fault);
+		}
+	else if (seglist[2] == "OB")
+		{
+		// Output B open load
+		strcpy(s, fault);
+		}
+	else if (seglist[3] == "GA")
+		{
+		// Output A short to ground
+		strcpy(s, fault);
+		}
+	else if (seglist[4] == "GB")
+		{
+		// Output B short to ground
+		strcpy(s, fault);
+		}
+	else if (seglist[5] == "OT")
+		{
+		// Temp > 150
+		strcpy(s, fault);
+		}
+	else if (seglist[6] == "PW")
+		{
+		// Temp > 120 C
+		strcpy(s, fault);
+		}
+	else if (seglist[7] == "GF")
+		{
+		// motor fault
+		strcpy(s, fault);
+		}
+	return true;
+}
+
+
+// Start and stop spiral
+// ideally stopping the spiral clears both switches
+// Repeatedly sending the start spiral command toggles the spiralling state
+// Therefore to be sure a spiral has started, send the stop command and then the start
+bool LX200NYX101::StartSpiral()
+{
+	IPState state = IPS_BUSY;
+	if (sendCommand(":Mp#"))
+	{
+		state = IPS_OK;
+	}
+	else
+	{
+		SpiralSP.setState(IPS_ALERT);
+		return false;
+	}
+	SpiralSP.setState(state);
+	return true;
+}
+
+bool LX200NYX101::StopSpiral()
+{
+	IPState state = IPS_BUSY;
+	if (sendCommand(":Q#"))
+	{
+		state = IPS_OK;
+	}
+	else
+	{
+		SpiralSP.setState(IPS_ALERT);
+		return false;
+	}
+	IUResetSwitch(SpiralSP);
+	SpiralSP.setState(state);
+	IDSetSwitch(SpiralSP, nullptr);
+	return true;
+}
+
 
 bool LX200NYX101::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
 {
     if (dev != nullptr && strcmp(dev, getDeviceName()) == 0)
     {
+        // Slew rates
+        if (RateNP.isNameMatch(name))
+        {
+            RateNP.update(values, names, n);
+            IPState state = IPS_OK;
+            IPState state_1 = IPS_OK;
+            IPState state_2 = IPS_OK;
+            if (isConnected())
+                {
+                    state_1 = SetSlewRateRA(values[RA]) ? IPS_OK : IPS_ALERT;
+                    state_2 = SetSlewRateDEC(values[DEC]) ? IPS_OK : IPS_ALERT;
+                    if (state_1 == IPS_OK && state_2 == IPS_OK)
+                    {
+                        state = IPS_OK;
+                    }
+                    else
+                    {
+                        state = IPS_ALERT;
+                    }
+                }
+            RateNP.setState(state);
+            RateNP.apply();
+        }
+        
+        // Meridian limit
         if (MeridianLimitNP.isNameMatch(name))
         {
             MeridianLimitNP.update(values, names, n);
@@ -590,6 +883,7 @@ bool LX200NYX101::ISNewNumber(const char *dev, const char *name, double values[]
             return true;
         }
 
+        // Meridian limit
         if (ElevationLimitNP.isNameMatch(name))
         {
             if(ElevationLimitNP.update(values, names, n))
@@ -612,9 +906,11 @@ bool LX200NYX101::ISNewNumber(const char *dev, const char *name, double values[]
             }
         }
     }
-    
     return LX200Generic::ISNewNumber(dev, name, values, names, n);
 }
+
+
+ 
 
 bool LX200NYX101::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
 {
@@ -705,6 +1001,24 @@ bool LX200NYX101::ISNewSwitch(const char *dev, const char *name, ISState *states
             ResetHomeSP.apply();
             return true;
         }
+		// Set the current position as the park position
+		else if(SetParkSP.isNameMatch(name))
+        {
+            SetParkSP.update(states, names, n);
+            IPState state = IPS_OK;
+            if (isConnected())
+            {
+                SetParkSP[0].setState(ISS_OFF);
+                sendCommand(":hQ#");
+            }
+			else
+			{
+				state = IPS_ALERT;
+			}
+            SetParkSP.setState(state);
+            SetParkSP.apply();
+            return true;
+        }
         else if(SafetyLimitSP.isNameMatch(name))
         {
             SafetyLimitSP.update(states, names, n);
@@ -738,40 +1052,23 @@ bool LX200NYX101::ISNewSwitch(const char *dev, const char *name, ISState *states
             RefractSP.apply();
             return true;
         }
-        else if(VerboseReportSP.isNameMatch(name))
-        {
-            VerboseReportSP.update(states, names, n);
-            int index = VerboseReportSP.findOnSwitchIndex();
-            VerboseReportSP[index].setState(ISS_OFF);
-
-            if(index == 0)
-                verboseReport = true;
-            else
-            {
-
-                SetPropertyText(IsTracking, IPS_IDLE);
-                SetPropertyText(IsSlewCompleted, IPS_IDLE);
-                SetPropertyText(IsParked, IPS_IDLE);
-                SetPropertyText(IsParkginInProgress, IPS_IDLE);
-                SetPropertyText(IsAtHomePosition, IPS_IDLE);
-                SetPropertyText(MountAltAz, IPS_IDLE);
-                SetPropertyText(MountEquatorial, IPS_IDLE);
-                SetPropertyText(PierNone, IPS_IDLE);
-                SetPropertyText(PierEast, IPS_IDLE);
-                SetPropertyText(PierWest, IPS_IDLE);
-                SetPropertyText(DoesRefractionComp, IPS_IDLE);
-                SetPropertyText(WaitingAtHome, IPS_IDLE);
-                SetPropertyText(IsHomePaused, IPS_IDLE);
-                SetPropertyText(ParkFailed, IPS_IDLE);
-                SetPropertyText(SlewingHome, IPS_IDLE);
-                verboseReport = false;
+		else if (SpiralSP.isNameMatch(name))
+		{
+			SpiralSP.update(states, names, n);
+			auto index = SpiralSP.findOnSwitchIndex();
+            switch(index)
+			{
+				case START:
+					StartSpiral();
+					break;
+				case STOP:
+					StopSpiral();
+					break;
             }
+            SpiralSP.apply();
+			return true;
+		}
 
-
-            VerboseReportSP.setState(index == 0 ? IPS_OK : IPS_IDLE);
-            VerboseReportSP.apply();
-            return true;
-        }
     }
     return LX200Generic::ISNewSwitch(dev, name, states, names, n);
 }
@@ -845,6 +1142,46 @@ bool LX200NYX101::SetSlewRate(int index)
     snprintf(raCommand, DRIVER_LEN, ":RA%f#", value);
 
     return sendCommand(decCommand) && sendCommand(raCommand);
+}
+
+bool LX200NYX101::SetSlewRateRA(double value)
+{
+    char raSlewCommand[DRIVER_LEN] = {0};
+    char raCommand[DRIVER_LEN] = {0};
+    if (value == 0){
+        snprintf(raSlewCommand, DRIVER_LEN, ":Qw#");
+    }
+    else if (value > 0){
+        snprintf(raSlewCommand, DRIVER_LEN, ":Mw#");
+    }
+    else if (value < 0){
+        snprintf(raSlewCommand, DRIVER_LEN, ":Me#");
+    }
+    snprintf(raCommand, DRIVER_LEN, ":RA%f#", abs(value));
+    
+
+    return sendCommand(raCommand) && sendCommand(raSlewCommand);
+}
+
+bool LX200NYX101::SetSlewRateDEC(double value)
+{
+
+    char decSlewCommand[DRIVER_LEN] = {0};
+    char decCommand[DRIVER_LEN] = {0};
+
+    if (value == 0){
+        snprintf(decSlewCommand, DRIVER_LEN, ":Qn#");
+    }
+    else if (value > 0){
+        snprintf(decSlewCommand, DRIVER_LEN, ":Mn#");
+    }
+    else if (value < 0){
+        snprintf(decSlewCommand, DRIVER_LEN, ":Ms#");
+    }
+    snprintf(decCommand, DRIVER_LEN, ":RE%f#", abs(value));
+    
+
+    return sendCommand(decCommand) && sendCommand(decSlewCommand);
 }
 
 bool LX200NYX101::setGuideRate(int rate)
@@ -1045,3 +1382,7 @@ std::vector<std::string> LX200NYX101::split(const std::string &input, const std:
           last;
     return {first, last};
 }
+
+
+
+

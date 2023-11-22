@@ -691,6 +691,51 @@ int getTrackFreq(int fd, double *value)
     return 0;
 }
 
+int getFloat(int fd, double *value, const char * command)
+{
+    DEBUGFDEVICE(lx200Name, DBG_SCOPE, "<%s>", __FUNCTION__);
+    float result;
+    char read_buffer[RB_MAX_LEN] = {0};
+    int error_type;
+    int nbytes_write = 0, nbytes_read = 0;
+
+    DEBUGFDEVICE(lx200Name, DBG_SCOPE, "CMD <%s>", command);
+
+    /* Add mutex */
+    std::unique_lock<std::mutex> guard(lx200CommsLock);
+
+    // Meade Telescope Serial Command Protocol Revision 2010.10
+    // :GT#
+    // Get tracking rate
+    // Returns: TT.T#
+    // Current Track Frequency expressed in hertz assuming a synchonous motor design where a 60.0 Hz motor clock
+    // would produce 1 revolution of the telescope in 24 hours.
+    if ((error_type = tty_write_string(fd, command, &nbytes_write)) != TTY_OK)
+        return error_type;
+
+    error_type = tty_nread_section(fd, read_buffer, RB_MAX_LEN, '#', LX200_TIMEOUT, &nbytes_read);
+    tcflush(fd, TCIFLUSH);
+
+    if (nbytes_read < 1)
+        return error_type;
+
+    read_buffer[nbytes_read] = '\0';
+
+    DEBUGFDEVICE(lx200Name, DBG_SCOPE, "RES <%s>", read_buffer);
+
+    if (sscanf(read_buffer, "%f#", &result) < 1)
+    {
+        DEBUGDEVICE(lx200Name, DBG_SCOPE, "Unable to parse response");
+        return -1;
+    }
+
+    *value = static_cast<double>(result);
+
+    DEBUGFDEVICE(lx200Name, DBG_SCOPE, "VAL [%g]", *value);
+
+    return 0;
+}
+
 int getHomeSearchStatus(int fd, int *status)
 {
     DEBUGFDEVICE(lx200Name, DBG_SCOPE, "<%s>", __FUNCTION__);

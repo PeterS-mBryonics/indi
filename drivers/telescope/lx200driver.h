@@ -204,6 +204,8 @@ int getCommandString(int fd, char *data, const char *cmd);
 int getCommandInt(int fd, int *value, const char *cmd);
 /* Get tracking frequency */
 int getTrackFreq(int fd, double *value);
+/* Get a float value */
+int getFloat(int fd, double *value, const char * command);
 /* Get site Latitude */
 int getSiteLatitude(int fd, int *dd, int *mm, double *ssf);
 /* Get site Longitude */

@@ -24,8 +24,15 @@
 #pragma once
 
 #include "lx200generic.h"
+
 //#define DEBUG_NYX
 
+using namespace std;
+#include <string>
+
+/* Add mutex */
+
+#include <mutex>
 
 class LX200NYX101 : public LX200Generic
 {
@@ -40,7 +47,7 @@ public:
 
     INDI::PropertyText DebugCommandTP {1};
 #endif
-    
+
 protected:
     virtual bool ReadScopeStatus() override;
     virtual const char *getDefaultName() override;
@@ -52,13 +59,25 @@ protected:
     virtual bool SetTrackEnabled(bool enabled) override;
     virtual bool SetTrackMode(uint8_t mode) override;
     virtual bool SetSlewRate(int index) override;
+    virtual bool SetSlewRateRA(double value);
+    virtual bool SetSlewRateDEC(double value);
+	virtual bool StartSpiral();
+	virtual bool StopSpiral();
+	double currentAz {0.0000001}, currentAlt {0.0000001};
+	double minPastEastMeridian {0.0000001}, minPastWestMeridian {0.0000001};
 
 private:
      static constexpr const uint8_t SLEW_MODES {10};
      static constexpr const uint8_t DRIVER_LEN {64};
      static const char DRIVER_STOP_CHAR { 0x23 };
      static constexpr const uint8_t DRIVER_TIMEOUT {3};
-
+    
+    enum MountType
+    {
+        AltAz,
+        Equatorial
+    };
+    
     enum RefractionState
     {
         REFRACT_ON,
@@ -78,25 +97,39 @@ private:
         TRACK_LUNAR,
         TRACK_KING
     };
-    
-    INDI::PropertySwitch MountTypeSP {2};
-    enum MountType
-    {
-        AltAz,
-        Equatorial
-    };
+
 
     enum ElevationNumber
     {
         OVERHEAD,
         HORIZON
     };
-
+    
+    enum RaDec
+    {
+        RA,
+        DEC
+    };
+	
+	enum AltAz
+    {
+        AZ,
+        ALT
+    };
+	
+	enum StartStop
+	{
+		START,
+		STOP
+	};
+	
+	
+    
+    INDI::PropertySwitch MountTypeSP {2};
     INDI::PropertySwitch GuideRateSP {3};
     INDI::PropertySwitch HomeSP {1};
     INDI::PropertySwitch ResetHomeSP {1};
     INDI::PropertyText Report {1};
-    INDI::PropertySwitch VerboseReportSP {2};
     INDI::PropertyText IsTracking {1};
     INDI::PropertyText IsSlewCompleted {1};
     INDI::PropertyText IsParked {1};
@@ -118,15 +151,30 @@ private:
     INDI::PropertyNumber ElevationLimitNP {2};
     INDI::PropertyNumber MeridianLimitNP {1};
     INDI::PropertySwitch SafetyLimitSP {2};
- 
+    // Slew rate controls for satellite tracking
+    INDI::PropertyNumber RateNP {2};
+	// Spiral search control
+	INDI::PropertySwitch SpiralSP {2};
+    // The hard limit switch
+    INDI::PropertyText RAHardLimitTP {1};
+    // RA motor status
+    INDI::PropertyText RAMotorStatusTP {1};
+    // DEC motor status
+    INDI::PropertyText DECMotorStatusTP {1};
+	// Alt/az data
+	INDI::PropertyNumber AltAzNP {2};
+	// Set park position
+	INDI::PropertySwitch SetParkSP {1};
 
-     bool sendCommand(const char * cmd, char * res = nullptr, int cmd_len = -1, int res_len = -1);
-     void hexDump(char * buf, const char * data, int size);
-     std::vector<std::string> split(const std::string &input, const std::string &regex);
-     bool goToPark();
-     bool goToUnPark();
-     bool setMountType(int type);
-     bool setGuideRate(int rate);
-     bool verboseReport = false;
-     void SetPropertyText(INDI::PropertyText propertyTxt, IPState state);
+
+    bool sendCommand(const char * cmd, char * res = nullptr, int cmd_len = -1, int res_len = -1);
+    void hexDump(char * buf, const char * data, int size);
+    std::vector<std::string> split(const std::string &input, const std::string &regex);
+    bool goToPark();
+    bool goToUnPark();
+    bool setMountType(int type);
+    bool setGuideRate(int rate);
+    void SetPropertyText(INDI::PropertyText propertyTxt, IPState state);
+	
+	bool GetMotorState(char * s, char * status);
 };
