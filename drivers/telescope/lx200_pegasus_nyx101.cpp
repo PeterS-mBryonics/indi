@@ -151,15 +151,15 @@ bool LX200NYX101::initProperties()
     SetParkSP.fill(getDeviceName(), "PARK_SET", "Set Park Pos.", MAIN_CONTROL_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
 
 
-    // Report and debug
-    Report[0].fill("Report","GU",OFF);
-    Report.fill(getDeviceName(), "Report", "Report", STATUS_TAB, IP_RO, 60, IPS_IDLE);
+    // Report and debug - Removed but left here if needed for future development
+
 
 #ifdef DEBUG_NYX    
     DebugCommandTP[0].fill("Command", "", "");
     DebugCommandTP.fill(getDeviceName(), "DebugCommand", "", MAIN_CONTROL_TAB, IP_RW, 0,
                         IPS_IDLE);
-#endif
+	Report[0].fill("Report","GU",ok);
+    Report.fill(getDeviceName(), "Report", "Report", STATUS_TAB, IP_RO, 60, IPS_IDLE);
 
     IsTracking[0].fill("IsTracking","n",OFF);
     IsTracking.fill(getDeviceName(),"IsTracking","IsTracking",STATUS_TAB, IP_RO, 60, IPS_IDLE);
@@ -206,7 +206,7 @@ bool LX200NYX101::initProperties()
     SlewingHome[0].fill("SlewingHome","h",OFF);
     SlewingHome.fill(getDeviceName(),"SlewingHome","SlewingHome",STATUS_TAB, IP_RO, 60, IPS_IDLE);
 	// End of report and debug
-	
+#endif
 	
     // Reboot 
     RebootSP[0].fill("Reboot", "Reboot", ISS_OFF);
@@ -254,7 +254,7 @@ bool LX200NYX101::initProperties()
 	SpiralSP.fill(getDeviceName(), "SpiralSearch", "Spiral Search at current guide rate", MOTION_TAB, IP_RW, ISR_1OFMANY, 60, IPS_IDLE);
     
     // The hard limit switch
-    RAHardLimitTP[0].fill("RAHardLimit", "n", OFF);
+    RAHardLimitTP[0].fill("RAHardLimit", "n", "-");
     RAHardLimitTP.fill(getDeviceName(), "RAHardLimit", "Hard limit state", STATUS_TAB, IP_RO, 60, IPS_IDLE);
     // RA motor status
     RAMotorStatusTP[0].fill("RAMotorStatus", "n", ok);
@@ -325,7 +325,6 @@ bool LX200NYX101::updateProperties()
         defineProperty(HomeSP);
         defineProperty(ResetHomeSP);
 		defineProperty(SetParkSP);
-        defineProperty(Report);
         defineProperty(FlipSP);
         defineProperty(MeridianLimitNP);
         defineProperty(ElevationLimitNP);
@@ -333,9 +332,8 @@ bool LX200NYX101::updateProperties()
         defineProperty(SafetyLimitSP);
 #ifdef DEBUG_NYX
         defineProperty(DebugCommandTP);
-#endif
-        defineProperty(RebootSP);
-        defineProperty(IsTracking);
+		defineProperty(Report);
+		defineProperty(IsTracking);
         defineProperty(IsSlewCompleted);
         defineProperty(IsParked);
         defineProperty(IsParkginInProgress);
@@ -350,6 +348,8 @@ bool LX200NYX101::updateProperties()
         defineProperty(IsHomePaused);
         defineProperty(ParkFailed);
         defineProperty(SlewingHome);
+#endif
+        defineProperty(RebootSP);
         defineProperty(RateNP);
         defineProperty(RAHardLimitTP);
         defineProperty(RAMotorStatusTP);
@@ -369,12 +369,10 @@ bool LX200NYX101::updateProperties()
         deleteProperty(SafetyLimitSP);
         deleteProperty(ResetHomeSP);
 		deleteProperty(SetParkSP);
-        deleteProperty(Report);
+
 #ifdef DEBUG_NYX
         deleteProperty(DebugCommandTP);
-#endif
-        deleteProperty(RebootSP);
-        deleteProperty(RefractSP);
+		deleteProperty(Report);
         deleteProperty(IsTracking);
         deleteProperty(IsSlewCompleted);
         deleteProperty(IsParked);
@@ -390,6 +388,10 @@ bool LX200NYX101::updateProperties()
         deleteProperty(IsHomePaused);
         deleteProperty(ParkFailed);
         deleteProperty(SlewingHome);
+#endif
+        deleteProperty(RebootSP);
+        deleteProperty(RefractSP);
+
         deleteProperty(RateNP);
         deleteProperty(RAHardLimitTP);
         deleteProperty(RAMotorStatusTP);
@@ -424,52 +426,37 @@ bool LX200NYX101::ReadScopeStatus()
 {
     if (!isConnected())
         return false;
-
-    bool _IsTracking = true;
+	bool _IsTracking = true;
+	bool _IsSlewCompleted = false;
+	bool _IsParked = false;
+	bool _DoesRefractionComp = false;
+	TelescopePierSide _PierSide = PIER_UNKNOWN;
+	NYXTelescopeTrackMode _TrackingMode = TRACK_SIDEREAL;
+#ifdef DEBUG_NYX
+    
     SetPropertyText(IsTracking, IPS_OK);
-
-    bool _IsSlewCompleted = false;
     SetPropertyText(IsSlewCompleted, IPS_BUSY);
-
-    bool _IsParked = false;
     SetPropertyText(IsParked, IPS_BUSY);
-
-    //bool _IsParkginInProgress = false;
+    bool _IsParkginInProgress = false;
     SetPropertyText(IsParkginInProgress, IPS_BUSY);
-
-    //bool _IsAtHomePosition = false;
+    bool _IsAtHomePosition = false;
     SetPropertyText(IsAtHomePosition, IPS_BUSY);
-
-    NYXTelescopeTrackMode _TrackingMode = TRACK_SIDEREAL;
-
-    //MountType _MountType = Equatorial;
-
-    TelescopePierSide _PierSide = PIER_UNKNOWN;
-
-    bool _DoesRefractionComp = false;
+    MountType _MountType = Equatorial;
     SetPropertyText(DoesRefractionComp, IPS_BUSY);
-
-    //bool _WaitingAtHome = false;
+    bool _WaitingAtHome = false;
     SetPropertyText(WaitingAtHome, IPS_BUSY);
-
-    //bool _IsHomePaused = false;
+    bool _IsHomePaused = false;
     SetPropertyText(IsHomePaused, IPS_BUSY);
-
-    //bool _ParkFailed = false;
+    bool _ParkFailed = false;
     SetPropertyText(ParkFailed, IPS_BUSY);
-
-    //bool _SlewingHome = false;
+    bool _SlewingHome = false;
     SetPropertyText(SlewingHome, IPS_BUSY);
-	
+#endif
 	// Getting the status message from the mount and interpreting it
 	char status[DRIVER_LEN] = {0};
     
     if(sendCommand(":GU#", status))
     {
-        char s[DRIVER_LEN] = {0};
-		strcpy(s, ok);
-		Report[0].text = s;
-        Report.apply();
         int index = 0;
         while(true)
         {
@@ -477,27 +464,39 @@ bool LX200NYX101::ReadScopeStatus()
             {
             case 'n':
                 _IsTracking = false;
+				#ifdef DEBUG_NYX
                 SetPropertyText(IsTracking, IPS_BUSY);
+				#endif
                 continue;
             case 'N':
                 _IsSlewCompleted = true;
-                 SetPropertyText(IsSlewCompleted, IPS_OK);
+				#ifdef DEBUG_NYX
+                SetPropertyText(IsSlewCompleted, IPS_OK);
+				#endif
                 continue;
             case 'p':
                 _IsParked = false;
+				#ifdef DEBUG_NYX
                 SetPropertyText(IsParked, IPS_BUSY);
+				#endif
                 continue;
             case 'P':
                 _IsParked = true;
+				#ifdef DEBUG_NYX
                 SetPropertyText(IsParked, IPS_OK);
+				#endif
                 continue;
             case 'I':
-                //_IsParkginInProgress = true;
+				#ifdef DEBUG_NYX
+                _IsParkginInProgress = true;
                 SetPropertyText(IsParkginInProgress, IPS_OK);
+				#endif
                 continue;
             case 'H':
-                //_IsAtHomePosition = true;
+				#ifdef DEBUG_NYX
+                _IsAtHomePosition = true;
                 SetPropertyText(IsAtHomePosition, IPS_OK);
+				#endif
                 continue;
             case '(':
                 _TrackingMode = TRACK_LUNAR;
@@ -509,14 +508,18 @@ bool LX200NYX101::ReadScopeStatus()
                 _TrackingMode = TRACK_KING;
                 continue;
             case 'A':
-                //_MountType = AltAz;
+				#ifdef DEBUG_NYX
+                _MountType = AltAz;
                 SetPropertyText(MountAltAz, IPS_OK);
                 SetPropertyText(MountEquatorial, IPS_BUSY);
+				#endif
                 continue;
             case 'E':
-                //_MountType = Equatorial;
+				#ifdef DEBUG_NYX
+                _MountType = Equatorial;
                 SetPropertyText(MountEquatorial, IPS_OK);
                 SetPropertyText(MountAltAz, IPS_BUSY);
+				#endif
                 continue;
             case 'T':
                 _PierSide = PIER_EAST;
@@ -526,23 +529,33 @@ bool LX200NYX101::ReadScopeStatus()
                 continue;
             case 'r':
                 _DoesRefractionComp = true;
+				#ifdef DEBUG_NYX
                 SetPropertyText(DoesRefractionComp, IPS_OK);
+				#endif
                 continue;
             case 'w':
-                //_WaitingAtHome = true;
+				#ifdef DEBUG_NYX
+                _WaitingAtHome = true;
                 SetPropertyText(WaitingAtHome, IPS_OK);
+				#endif
                 continue;
             case 'u':
-                //_IsHomePaused = true;
+				#ifdef DEBUG_NYX
+                _IsHomePaused = true;
                 SetPropertyText(IsHomePaused, IPS_OK);
+				#endif
                 continue;
             case 'F':
-                //_ParkFailed = true;
+				#ifdef DEBUG_NYX
+                _ParkFailed = true;
                 SetPropertyText(ParkFailed, IPS_OK);
+				#endif
                 continue;
             case 'h':
-                //_SlewingHome = true;
+				#ifdef DEBUG_NYX
+                _SlewingHome = true;
                 SetPropertyText(SlewingHome, IPS_OK);
+				#endif
                 continue;
             case '#':
                 break;
@@ -554,10 +567,7 @@ bool LX200NYX101::ReadScopeStatus()
     }
 	else
 	{
-        char s[DRIVER_LEN] = {0};
-		strcpy(s, fault);
-		Report[0].text = s;
-        Report.apply();
+
 	}
 	
 	
@@ -579,7 +589,7 @@ bool LX200NYX101::ReadScopeStatus()
     TrackModeS[_TrackingMode].s = ISS_ON;
     TrackModeSP.s   = IPS_OK;
     IDSetSwitch(&TrackModeSP, nullptr);
-
+#ifdef DEBUG_NYX
     switch(_PierSide)
     {
         case INDI::Telescope::PIER_UNKNOWN:
@@ -598,7 +608,7 @@ bool LX200NYX101::ReadScopeStatus()
             SetPropertyText(PierNone, IPS_BUSY);
             break;
     }
-
+#endif
 
     if (TrackState == SCOPE_SLEWING)
     {
@@ -670,17 +680,11 @@ bool LX200NYX101::ReadScopeStatus()
     sendCommand(":GX9L#", RaLimitStatus);
     if(RaLimitStatus[0] == '1')
     {
-		char s[DRIVER_LEN] = {0};
-		strcpy(s, fault);
-		RAHardLimitTP[0].text = s;
-		RAHardLimitTP.setState(IPS_ALERT);
+		SetPropertyText(RAHardLimitTP, IPS_OK);
     }
     else
     {
-		char s[DRIVER_LEN] = {0};
-		strcpy(s, ok);
-		RAHardLimitTP[0].text = s;
-		RAHardLimitTP.setState(IPS_OK);
+		SetPropertyText(RAHardLimitTP, IPS_IDLE);
     }
     RAHardLimitTP.apply();
     
@@ -688,7 +692,6 @@ bool LX200NYX101::ReadScopeStatus()
 	if (getLX200Az(PortFD, &currentAz) < 0 || getLX200Alt(PortFD, &currentAlt) < 0)
 	{
 		AltAzNP.setState(IPS_ALERT);
-        // IDSetNumber(&AltAzNP, "Error reading Az - Alt");
         return false;
 	}
 	else
